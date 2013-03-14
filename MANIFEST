@@ -1,0 +1,9 @@
+MYMETA.json
+MYMETA.yml
+Makefile.PL
+README.pod
+src/gnuplot-4.6.1.tar.gz
+lib/Alien/Gnuplot.pm
+MANIFEST
+META.yml                                 Module YAML meta-data (added by MakeMaker)
+META.json                                Module JSON meta-data (added by MakeMaker)
