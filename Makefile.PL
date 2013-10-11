@@ -76,51 +76,47 @@ The minimum recommended version is $Alien::Gnuplot::GNUPLOT_RECOMMENDED_VERSION.
     }
 
     if($get_msg) {
-	print $get_msg . q{
-Attempting to install/upgrade gnuplot on your system....
+	print $get_msg ;
 
-};
-	if( install_gnuplot_binary() ) {
-	    print "\nGnuplot installation was successful - not building from source.\n";
+	my $install_flag;
+
+	if( -t STDIN  or   $^O =~ m/MSWin/) {
+	    print "Gnuplot seems to not exist on your system.  Shall I try to install it? [Y/n]> ";
+	    $a = <STDIN>;
+	    $install_flag = !($a =~ m/^\s*n/i);
 	} else {
-	    my @tarballs = sort map { chomp $_; s/^src\///; $_ } (split /[\r\n]+/, `ls src/gnuplot-*.tar.gz`);
-	    my $tarball = $tarballs[$#tarballs];
-	    my $sourcedir = $tarball;
-	    $sourcedir =~ s/.tar.gz//;
+	    $install_flag = 1;
+	}
 
-	    print qq{
-Couldn't install gnuplot from a package manager.  Will attempt to build from source.
+	if($install_flag) {
 
+	    print "Attempting to install/upgrade gnuplot on your system....\n\n";
+
+	    if( install_gnuplot_binary() ) {
+		print "\nGnuplot installation was successful - not building from source.\n";
+	    } else {
+		my @tarballs = sort map { chomp $_; s/^src\///; $_ } (split /[\r\n]+/, `ls src/gnuplot-*.tar.gz`);
+		my $tarball = $tarballs[$#tarballs];
+		my $sourcedir = $tarball;
+		$sourcedir =~ s/.tar.gz//;
+		
+		die qq{
+Couldn't find gnuplot, and couldn't get it from the standard package managers.
+I'd try to download the packages from sourceforge, but there are roadblocks that
+make it hard to automate.  
+
+You can get gnuplot from the DOWNLOAD link here: "http://gnuplot.info". 
 };
-	    *MY::postamble = sub {
-# Postamble sub -- generate and return text that gets tacked onto the end of the makefile.
-# This one adds a gnuplot dependency to pure_all (default make) and also adds function to 
-# do the actual compile and to install the resulting gnuplot.
-		my $text = <<"FOO";
-pure_all :: gnuplot
-
-gnuplot :: gnuplot_source
-	echo "Making $sourcedir from included source code...."
-	cd src/$sourcedir; ./prepare
-	cd src/$sourcedir; ./configure
-	cd src/$sourcedir; make
-
-gnuplot_source : src/$tarball
-	cd src; rm -rf $sourcedir; tar xvfz $tarball
-
-install :: gnuplot
-	cd src/$sourcedir
-	make install
-FOO
-                return $text;
-	    }; # end of postamble sub definition
-	} # end of conditional 
+	    } # end of binary conditional 
+	} # end of prompt conditional
     } # end of get_msg condition
 } # end of convenience block	
 
 ##############################
 ##############################
-## The pedal meets the metal here.
+## 
+## install_gnuplot_binary routine -- called
+## from deep in the install conditional above.
 ##
 ## The strategy is to try to get a late-model
 ## binary from the Usual Suspects, and fall back
@@ -149,7 +145,7 @@ sub install_gnuplot_binary {
 		my $msg;
 		eval q{ do q{lib/Alien/Gnuplot.pm}; $msg = $@; } ;
 		
-		if( ((!$msg) and ($Alien::Gnuplot::version))) {
+		if( (!$msg) and ($Alien::Gnuplot::version >= $Alien::Gnuplot::GNUPLOT_RECOMMENDED_VERSION)) {
 		    print "Success!\n";
 		    return 1;               # Success - return 1
 		} else {
@@ -189,10 +185,11 @@ sub install_gnuplot_binary {
 		my $msg;
 		eval q{ do q{lib/Alien/Gnuplot.pm}; $msg = $@ };
 		
-		if( (!$msg) and ($Alien::Gnuplot::version) ) {
+		if( (!$msg) and ($Alien::Gnuplot::version >= $Alien::Gnuplot::GNUPLOT_RECOMMENDED_VERSION) ) {
 		    print "Success!\n";
 		    return 1;              # Success - return 1
 		} else {
+		    print "Hmmm, that didn't seem to work.\n";
 		    return 0;              # Failure - give up (once you find one package manager don't use any other)
 		}
 	    } # end of found-this-manager conditional
@@ -236,6 +233,6 @@ WriteMakefile(
     },		  
 
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
-    clean               => { FILES => 'PDL-Graphics-Gnuplot-*' },
+    clean               => { FILES => 'Alien-Gnuplot-* src/*[0-9]' },
 	);
 
