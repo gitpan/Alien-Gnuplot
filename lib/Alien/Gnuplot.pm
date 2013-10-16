@@ -25,29 +25,49 @@ called automatically at load time.  Alien::Gnuplot doesn't have any
 actual plotting methods - making use of gnuplot, once it is found and
 verified, is up to you or your client module.
 
-Using Alien::Gnuplot checks for existence of the executable, and sets
-several global variables:
+Using Alien::Gnuplot checks for existence of the executable, verifies
+that it runs properly, and sets several global variables to describe
+the properties of the gnuplot it found:
 
 =over 3
 
-=item * C<$Alien::Gnuplot::executable> gets the path to the executable that was found.
+=item * C<$Alien::Gnuplot::executable> 
 
-=item * C<$Alien::Gnuplot::version> gets the self-reported version number of the executable.
+gets the path to the gnuplot executable.
 
-=item * C<$Alien::Gnuplot::pl> gets the self-reported patch level.
+=item * C<$Alien::Gnuplot::version> 
 
-=item * C<@Alien::Gnuplot::terms> gets a list of the names of all supported terminal devices
+gets the self-reported version number of the executable.
 
-=item * C<%Alien::Gnuplot::terms> gets a key for each supported terminal device; values are the 1-line description from gnuplot.
+=item * C<$Alien::Gnuplot::pl> 
 
-=item * C<@Alien::Gnuplot::colors> gets a list of the names of all named colors recognized by this gnuplot.
+gets the self-reported patch level.
 
-=item * C<%Alien::Gnuplot::colors> gets a key for each named color; values are the C<#RRGGBB> form of the color.
+=item * C<@Alien::Gnuplot::terms> 
+
+gets a list of the names of all supported terminal devices.
+
+=item * C<%Alien::Gnuplot::terms> 
+
+gets a key for each supported terminal device; values are the 1-line
+description from gnuplot.  This is useful for testing whether a
+particular terminal is supported.
+
+=item * C<@Alien::Gnuplot::colors> 
+
+gets a list of the names of all named colors recognized by this gnuplot.
+
+=item * C<%Alien::Gnuplot::colors> 
+
+gets a key for each named color; values are the C<#RRGGBB> form of the color.
+This is useful for decoding colors, or for checking whether a particular color
+name is recognized.  All the color names are lowercase alphanumeric.
 
 =back
 
 You can point Alien::Gnuplot to a particular path for gnuplot, by
-setting the environment variable GNUPLOT_BINARY to the path.
+setting the environment variable GNUPLOT_BINARY to the path.  Otherwise
+your path will be searched (using File::Spec) for the executable file.
 
 If there is no executable application in your path or in the location
 pointed to by GNUPLOT_BINARY, then the module throws an exception.
@@ -72,20 +92,34 @@ In principle, gnuplot could be automagically downloaded and built,
 but it is distributed via Sourceforge -- which obfuscates interior
 links, making such tools surprisingly difficult to write.
 
+=head1 CROSS-PLATFORM BEHAVIOR
+
+On POSIX systems, including Linux and MacOS, Alien::Gnuplot uses
+fork/exec to invoke the gnuplot executable and asynchronously monitor
+it for hangs.  Microsoft Windows process control is more difficult, so
+if $^O contains "MSWin32", a simpler system call is used, that is
+riskier -- it involves waiting for the unknown executable to complete.
+
 =head1 REPOSITORIES
 
-Alien::Gnuplot development is at "http://github.com/drzowie/Alien-Gnuplot".
+Gnuplot's main home page is at L<http://www.gnuplot.info>.
 
-Gnuplot's main home page is at "http://www.gnuplot.info", and the source code
-tarball in src is downloaded from there.
+Alien::Gnuplot development is at L<http://github.com/drzowie/Alien-Gnuplot>.
+
+A major client module for Alien::Gnuplot is PDL::Graphics::Gnuplot, which
+can be found at L<http://github.com/drzowie/PDL-Graphics-Gnuplot>.
+PDL is at L<http://pdl.perl.org>.
 
 =head1 AUTHOR
 
 Craig DeForest <craig@deforest.org>
 
+(with special thanks to Chris Marshall, Juergen Mueck, and
+Sisyphus for testing and debugging on the Microsoft platform)
+
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2013 by Craig DeForest
+Copyright (C) 2013 Craig DeForest
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
@@ -95,7 +129,9 @@ it under the same terms as Perl itself.
 package Alien::Gnuplot;
 
 use strict;
+our $DEBUG = 0; # set to 1 for some debugging output
 
+use File::Spec;
 use File::Temp qw/tempfile/;
 use Time::HiRes qw/usleep/;
 use POSIX ":sys_wait_h";
@@ -104,7 +140,7 @@ use POSIX ":sys_wait_h";
 # overload the system VERSION to compare a required version against gnuplot itself, rather
 # than against the module version.
 
-our $VERSION = '1.001';
+our $VERSION = '1.010';
 
 # On install, try to make sure at least this version is present.
 our $GNUPLOT_RECOMMENDED_VERSION = '4.6';  
@@ -141,15 +177,12 @@ sub load_gnuplot {
 	$exec_path = $ENV{'GNUPLOT_BINARY'};
     } else {
 	my $exec_str = "gnuplot";
-	if( defined($ENV{'PATH'}) ) {
-	    # POSIX path present...
-	    my @path = split (/\:/,$ENV{'PATH'});
-	    for my $dir(@path) {
-		$exec_path = "$dir/$exec_str";
-		last if( -x $exec_path );
-	    }
-	} else {
-	    die "Alien::Gnuplot: No POSIX-style path found, and no GNUPLOT_BINARY environment\nvariable found either\n\n";
+	my @path = File::Spec->path();
+	for my $dir(@path) {
+	    $exec_path = File::Spec->catfile( $dir, $exec_str );
+	    last if( -x $exec_path );
+	    $exec_path .= ".exe";
+	    last if( -x $exec_path );
 	}
     }
     
@@ -159,10 +192,9 @@ Alien::Gnuplot: no executable gnuplot found!  If you have gnuplot,
 you can put its exact location in your GNUPLOT_BINARY environment 
 variable or make sure your PATH contains it.  If you do not have
 gnuplot, you can reinstall Alien::Gnuplot to get it, or get
-it yourself from L<http:/www.gnuplot.info>.
+it yourself from L<http://www.gnuplot.info>.
 };
     }
-    
     
 ##############################
 # Execute the executable to make sure it's really gnuplot, and parse
@@ -172,33 +204,71 @@ it yourself from L<http:/www.gnuplot.info>.
 # kills it dead.
     my($pid);
     my ($undef, $file) = tempfile('gnuplot_test_XXXX');
-    
-    $pid = fork();
-    if(defined($pid) and !$pid) {
-	# daughter
-	open STDOUT, ">$file";
-	open STDERR, ">&STDOUT";
-	open FOO, "|$exec_path";
-	print FOO "show version\nset terminal\n\n\n\n\n\n\n\n\n\nprint \"CcColors\"\nshow colornames\n\n\n\n\n\n\n\nprint \"FfFinished\"n";
-	close FOO;
-	exit(0);
-    }
-    elsif($pid>0) {
-	# Poll for 2 seconds, cheesily.
-	for (1..20) {
-	    if(waitpid($pid,WNOHANG)) {
-		$pid=0;
-		last;
-	    }
-	    usleep(1e5);
+
+    # Create command file
+    open FOO, ">${file}_gzinta";
+    print FOO "show version\nset terminal\n\n\n\n\n\n\n\n\n\nprint \"CcColors\"\nshow colornames\n\n\n\n\n\n\n\nprint \"FfFinished\"\nexit\n";
+    close FOO;
+
+    if($^O =~ /MSWin32/i) {
+
+	if( $exec_path =~ m/([\"\*\?\<\>\|])/ ) {
+	    die "Alien::Gnuplot: Invalid character '$1' in path to gnuplot -- I give up" ;
 	}
 	
-	if($pid) {
-	    kill 9,$pid;   # zap
-	    waitpid($pid,0); # reap
-	}
+	# Microsoft Windows sucks at IPC (and many other things), so
+	# use "system" instead of civilized fork/exec.
+	# This leaves us vulnerable to gnuplot itself hanging, but 
+	# sidesteps the problem of waitpid hanging on Strawberry Perl.
+	open FOO, ">&STDOUT";
+	open BAR, ">&STDERR";
+	open STDOUT,">$file";
+	open STDERR,">$file";
+	system(qq{"$exec_path" < ${file}_gzinta});
+	open STDOUT,">&FOO";
+	open STDERR,">&BAR";
+	close FOO;
+	close BAR;
     } else {
-	die "Couldn't fork!";
+	$pid = fork();
+	if(defined($pid)) {
+	    if(!$pid) {
+		# daughter
+		open BAR, ">&STDERR"; # preserve stderr
+		eval { 
+		    open STDOUT, ">$file";
+		    open STDERR, ">&STDOUT";
+		    open STDIN, "<${file}_gzinta";
+		    exec($exec_path);
+		    print BAR "Execution of $exec_path failed!\n";
+		    exit(1);
+		}; 
+		print STDERR "Alien::Gnuplot: Unknown problems spawning '$exec_path' to probe gnuplot.\n";
+		exit(2); # there was a problem!
+	    } else {
+		# parent
+		# Assume we're more POSIX-compliant...
+		if($DEBUG) { print "waiting for pid $pid (up to 20 iterations of 100ms)"; flush STDOUT; }
+		for (1..20) {
+		    if($DEBUG) { print "."; flush STDOUT; }
+		    if(waitpid($pid,WNOHANG)) {
+			$pid=0;
+			last;
+		    }
+		    usleep(1e5);
+		}
+		if($DEBUG) { print "\n"; flush STDOUT; }
+		
+		if($pid) {
+		    if( $DEBUG) { print "gnuplot didn't complete.  Killing it dead...\n"; flush STDOUT; }
+		    kill 9,$pid;   # zap
+		    waitpid($pid,0); # reap
+		}
+	    } #end of parent case
+	} else {
+	    # fork returned undef - error.
+	    die "Alien::Gnuplot: Couldn't fork to test gnuplot! ($@)\n";
+	}
     }
     
 ##############################
@@ -206,15 +276,15 @@ it yourself from L<http:/www.gnuplot.info>.
     open FOO, "<$file";
     my @lines = <FOO>;
     unlink $file;
-    
+    unlink $file."_gzinta";
     
 ##############################
 # Whew.  Now parse out the 'GNUPLOT' and version number...
     my $lines = join("", map { chomp $_; $_} @lines);
     $lines =~ s/\s+G N U P L O T\s*//  or  die qq{
-Alien::Gnuplot: the executable file $exec_path appears not to be gnuplot!  You can 
-remove it or set your GNUPLOT_BINARY variable to an actual gnuplot.
-
+Alien::Gnuplot: the executable '$exec_path' appears not to be gnuplot,
+or perhaps there was a problem running it.  You can remove it or set
+your GNUPLOT_BINARY variable to an actual gnuplot.
 };
     
     $lines =~ m/Version (\d+\.\d+) (patchlevel (\d+))?/ or die qq{
@@ -226,7 +296,6 @@ I could not parse a verion number from its output.  Sorry, I give up.
     $version = $1;
     $pl = $3;
     $executable = $exec_path;
-    
     
 ##############################
 # Parse out available terminals and put them into the 
