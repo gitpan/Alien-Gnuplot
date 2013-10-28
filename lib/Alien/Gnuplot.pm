@@ -140,7 +140,7 @@ use POSIX ":sys_wait_h";
 # overload the system VERSION to compare a required version against gnuplot itself, rather
 # than against the module version.
 
-our $VERSION = '1.010';
+our $VERSION = '1.020';
 
 # On install, try to make sure at least this version is present.
 our $GNUPLOT_RECOMMENDED_VERSION = '4.6';  
@@ -289,7 +289,7 @@ your GNUPLOT_BINARY variable to an actual gnuplot.
     
     $lines =~ m/Version (\d+\.\d+) (patchlevel (\d+))?/ or die qq{
 Alien::Gnuplot: the executable file $exec_path claims to be gnuplot, but 
-I could not parse a verion number from its output.  Sorry, I give up.
+I could not parse a version number from its output.  Sorry, I give up.
 
 };
     
